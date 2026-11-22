@@ -1,0 +1,6 @@
+id=tmo-unlock
+name=T-Mobile Carrier Whitelist Clear
+version=1.0
+versionCode=1
+author=local
+description=Clears the carrier restriction whitelist at every boot so any SIM/eSIM stays active
