@@ -197,3 +197,38 @@ adb shell 'logcat -b radio -d | grep -c SET_ALLOWED_CARRIERS'  # 0 (no enforcer 
 - **DurkaEbanaya/Root-My-Pixel-Pixel6a** - the oobconfig surgery procedure (`docs/carrier-lock.md`) and `CarrierUnlock` helper this guide adapts
 - The XDA carrier-unlock threads and the GrapheneOS forum GUL82 case for the unlock architecture
 
+
+---
+
+## OEM unlock: what we actually tested (Nov 2026, build CP4A.261105.040.A1)
+
+A widely shared write-up claims the greyed OEM unlock switch is just the last byte of the `frp` partition and that root can flip it. Tested end to end on `mustang`, SKU `GUL82`:
+
+| Step | Result |
+|---|---|
+| Locate the byte | `frp` partition, 524288 bytes; OEM flag is byte 524287, value `0x00` when locked |
+| `dumpsys persistent_data_block` baseline | `OEM unlock state: false`, bootloader lock `1` |
+| Write `0x01` at 524287 with root | Android immediately reports `OEM unlock state: true` |
+| Reboot to bootloader, `get_unlock_ability` | **still `0`** |
+| `fastboot flashing unlock` with byte at `01` | **`FAILED (remote: 'flashing unlock is not allowed')`** |
+
+The Android-side API confirms a second, separate gate:
+
+```
+oem_lock service, serial 01.01
+isOemUnlockAllowed             = false
+isOemUnlockAllowedByCarrier    = false     <-- the real block
+isOemUnlockAllowedByUser       = false
+
+setOemUnlockAllowedByUser(true)     -> SecurityException: Carrier does not allow OEM unlock
+setOemUnlockAllowedByCarrier(true)  -> IllegalArgumentException: Signature required for carrier unlock
+                                       (VendorLockAidl)
+```
+
+So the mechanism in the write-up is correct but **incomplete for a carrier-locked unit**. There are two halves: a user byte (writable with root) and a carrier flag in RPMB that needs a Google-signed challenge. The byte flip is a prerequisite, not a solution. Nothing on `/persist` holds it (the lock name `01.01` is an RPMB slot).
+
+Practical ordering that follows from this: signed unlock service first, or an OOBE that never lets the carrier flag be written. Do not expect a raw byte flip to open `flashing unlock` on a T-Mobile SKU.
+
+### Undo / restore
+
+Back up first: `dd if=/dev/block/by-name/frp of=/sdcard/frp_stock.img`, pull it, and keep it off-device. To restore the stock state just write `0x00` back at 524287 (Android also rewrites it to `0` on the next boot while the user flag is false).
